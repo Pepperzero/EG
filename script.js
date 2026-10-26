@@ -139,11 +139,18 @@ let pageLeave = gsap.timeline({
 });
 
 //////////// Animation that happen when clicking on a nav link.
-$(".menu_panel a, .arrow_svg_link-block, container-flex.is-opus a").on(
+$(".menu_panel a, .arrow_svg_link-block, .container-flex.is-opus a").on(
   "click",
   function (e) {
-    e.preventDefault();
     let destination = $(this).attr("href");
+
+    // In-page anchors (e.g. "#collection") don't load a new page, so the
+    // loader would fade in and never fade out. Let Webflow scroll normally.
+    if (!destination || destination.startsWith("#")) return;
+    // New-tab links and cmd/ctrl-clicks should keep the browser default too
+    if (this.target === "_blank" || e.metaKey || e.ctrlKey || e.shiftKey) return;
+
+    e.preventDefault();
     console.log(destination);
 
     //close menu
