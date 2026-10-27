@@ -276,3 +276,26 @@ function animateWords() {
 
 // Avoid flash of unstyled content
 //gsap.set("[text-split]", { opacity: 1 });
+
+//////////// Extra nav: arrow direction + arrow click
+// (moved here from the CodeSandbox preview script, which loads unreliably)
+(() => {
+  const box = document.querySelector(".extra-nav_category");
+  const collection = document.querySelector("#collection");
+  if (!box || !collection) return;
+
+  ScrollTrigger.create({
+    trigger: collection,
+    start: "top 50%",
+    onEnter: () => box.classList.add("is-up"),
+    onLeaveBack: () => box.classList.remove("is-up"),
+  });
+
+  // The arrow (href="#") does whatever the visible label does,
+  // so Webflow's native smooth anchor scroll handles both.
+  box.querySelector(".extra-nav_arrow_link")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    const isUp = box.classList.contains("is-up");
+    box.querySelector(isUp ? "#scroll-up" : "#scroll-down")?.click();
+  });
+})();
