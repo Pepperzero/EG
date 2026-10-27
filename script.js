@@ -95,9 +95,8 @@ if (window.innerWidth > 480) {
       spaceBetween: 8,
       speed: 1100,
       //grabCursor: true,
-      mousewheel: release
-        ? { releaseOnEdges: true, forceToAxis: true, thresholdDelta: 15 }
-        : true, //mouse wheel let you scroll slides
+      // Release sliders use the custom wheel handler below instead
+      mousewheel: !release, //mouse wheel let you scroll slides
       touchReleaseOnEdges: release,
       parallax: true,
       //slideToClickedSlide: true,
@@ -106,20 +105,82 @@ if (window.innerWidth > 480) {
       },
     });
 
-    // Only capture the mouse wheel when the slider is (almost) fully on
-    // screen, so slow scrolling past it never gets trapped.
-    if (release) {
-      swiper.mousewheel.disable();
-      new IntersectionObserver(
-        ([entry]) => {
-          entry.intersectionRatio > 0.95
-            ? swiper.mousewheel.enable()
-            : swiper.mousewheel.disable();
-        },
-        { threshold: [0, 0.5, 0.95, 1] }
-      ).observe(swiperEl);
-    }
+    if (release) initScrollReleaseWheel(swiper, swiperEl);
   });
+}
+
+// Custom wheel handling for release sliders:
+// - one wheel step / swipe moves one slide, continued scrolling chains
+//   slides even mid-animation (Swiper's own wheel handling waits for
+//   each animation to finish, which made long lists slow)
+// - mouse and trackpad get separate tuning (trackpads send many small deltas)
+// - only active when the slider is (almost) fully on screen
+// - at the first/last slide it holds briefly, then hands scroll to the page
+function initScrollReleaseWheel(swiper, swiperEl) {
+  const MOUSE = { STEP: 120, MIN_GAP: 280 }; // px of wheel per slide, ms between slides
+  const TRACKPAD = { STEP: 380, MIN_GAP: 750 };
+  const SLOW = 1100; // single step animation (ms)
+  const FAST = 600; // chained step animation (ms)
+  const EDGE_LOCK = 450; // ms to hold at an edge before releasing to the page
+
+  let inView = false;
+  let acc = 0;
+  let lastStep = 0;
+  let edgeSince = 0;
+  let lastEvent = 0;
+  let trackpad = false;
+
+  new IntersectionObserver(
+    ([entry]) => {
+      inView = entry.intersectionRatio > 0.95;
+      if (!inView) acc = 0;
+    },
+    { threshold: [0, 0.5, 0.95, 1] }
+  ).observe(swiperEl);
+
+  swiperEl.addEventListener(
+    "wheel",
+    (e) => {
+      if (!inView || Math.abs(e.deltaY) < Math.abs(e.deltaX)) return;
+      const dy = e.deltaY * (e.deltaMode === 1 ? 16 : 1);
+      const t = performance.now();
+
+      // Trackpads send small and/or fractional deltas in pixel mode.
+      // Decided per gesture (a 300ms pause starts a new one) so it never flips mid-scroll.
+      const looksTrackpad =
+        e.deltaMode === 0 && (Math.abs(dy) < 50 || !Number.isInteger(dy));
+      if (t - lastEvent > 300) trackpad = looksTrackpad;
+      else if (looksTrackpad) trackpad = true;
+      lastEvent = t;
+      const cfg = trackpad ? TRACKPAD : MOUSE;
+
+      const down = dy > 0;
+      const atEdge = down ? swiper.isEnd : swiper.isBeginning;
+      if (atEdge) {
+        if (!edgeSince) edgeSince = t;
+        if (t - edgeSince > EDGE_LOCK) {
+          acc = 0;
+          return; // let the page scroll
+        }
+        e.preventDefault();
+        return;
+      }
+      edgeSince = 0;
+      e.preventDefault();
+
+      if (Math.sign(dy) !== Math.sign(acc)) acc = 0;
+      acc += dy;
+      if (Math.abs(acc) < cfg.STEP || t - lastStep < cfg.MIN_GAP) return;
+
+      const chained = t - lastStep < 700;
+      if (down) swiper.slideNext(chained ? FAST : SLOW);
+      else swiper.slidePrev(chained ? FAST : SLOW);
+      if (down ? swiper.isEnd : swiper.isBeginning) edgeSince = t;
+      lastStep = t;
+      acc = 0;
+    },
+    { passive: false }
+  );
 }
 
 ////////// Page transition
