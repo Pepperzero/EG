@@ -80,22 +80,45 @@ $(".opera_credits_container").each(function () {
 ///////////Swiper on Opus page
 if (window.innerWidth > 480) {
   $(".opus_swiper_component").each(function (index) {
-    const swiper = new Swiper($(this).find(".swiper")[0], {
+    const swiperEl = $(this).find(".swiper")[0];
+    // Opt-in: components with the custom attribute data-scroll-release="true"
+    // get the page-friendly version (no loop, hands the scroll back to the
+    // page at the first/last slide). All other sliders keep the original setup.
+    const release = this.dataset.scrollRelease === "true";
+
+    const swiper = new Swiper(swiperEl, {
       //swiper.disable(),
       direction: "vertical",
-      loop: true,
+      loop: !release,
       slidesPerView: 1.2,
       centeredSlides: true,
       spaceBetween: 8,
       speed: 1100,
       //grabCursor: true,
-      mousewheel: true, //mouse wheel let you scroll slides
+      mousewheel: release
+        ? { releaseOnEdges: true, forceToAxis: true, thresholdDelta: 15 }
+        : true, //mouse wheel let you scroll slides
+      touchReleaseOnEdges: release,
       parallax: true,
       //slideToClickedSlide: true,
       keyboard: {
         enabled: true,
       },
     });
+
+    // Only capture the mouse wheel when the slider is (almost) fully on
+    // screen, so slow scrolling past it never gets trapped.
+    if (release) {
+      swiper.mousewheel.disable();
+      new IntersectionObserver(
+        ([entry]) => {
+          entry.intersectionRatio > 0.95
+            ? swiper.mousewheel.enable()
+            : swiper.mousewheel.disable();
+        },
+        { threshold: [0, 0.5, 0.95, 1] }
+      ).observe(swiperEl);
+    }
   });
 }
 
