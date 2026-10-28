@@ -110,8 +110,8 @@ if (window.innerWidth > 480) {
 // Opus scrolling list (replaces the vertical swiper on opted-in components):
 // - projects are a normal list scrolling with the page, so no scroll hijacking
 // - each project's text sits next to its image and only shows while that image
-//   covers the middle of the screen (fades in from the right, out to the left,
-//   same 1.1s timing as the old swiper)
+//   covers the middle of the screen (fades in from the right and back out to
+//   the right, same 1.1s timing as the old swiper)
 // - images drift slightly inside their frame (parallax)
 function initOpusScrollList(component) {
   const list = component.querySelector(".swiper");
@@ -132,33 +132,14 @@ function initOpusScrollList(component) {
   const imgs = items.map((item) => item.querySelector(".opus_img"));
 
   const PARALLAX = 0.15; // the image is 130% of its frame, so it can move ±15%
-  const EXIT_MS = 1150; // a bit longer than the 1.1s text transition
   const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
-  const timers = new Map();
   let current = -1;
-
-  // Put a text that finished leaving back on the right, without animating it
-  function park(item) {
-    item.classList.add("no-anim");
-    item.classList.remove("is-leaving");
-    item.offsetHeight; // apply the jump before re-enabling transitions
-    item.classList.remove("no-anim");
-  }
 
   function setCurrent(i) {
     if (i === current) return;
-    const old = items[current];
-    if (old) {
-      old.classList.remove("is-current");
-      old.classList.add("is-leaving");
-      clearTimeout(timers.get(old));
-      timers.set(old, setTimeout(() => park(old), EXIT_MS));
-    }
+    if (items[current]) items[current].classList.remove("is-current");
     current = i;
-    const item = items[i];
-    clearTimeout(timers.get(item));
-    if (item.classList.contains("is-leaving")) park(item);
-    item.classList.add("is-current");
+    items[i].classList.add("is-current");
   }
 
   function update() {
@@ -211,8 +192,6 @@ ${C} .opus_img { will-change: transform; }
 ${C} .txt_content { opacity: 0; transform: translateX(5%); pointer-events: none;
   transition: opacity 1.1s ${EASE}, transform 1.1s ${EASE}; }
 ${C} .is-current .txt_content { opacity: 1; transform: translateX(0); pointer-events: auto; }
-${C} .is-leaving .txt_content { transform: translateX(-5%); }
-${C} .no-anim .txt_content { transition: none !important; }
 @media (prefers-reduced-motion: reduce) {
   ${C} .txt_content { transform: none !important; transition: opacity 0.3s linear !important; }
 }`;
