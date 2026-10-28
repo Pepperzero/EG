@@ -375,3 +375,62 @@ function animateWords() {
     box.querySelector(isUp ? "#scroll-up" : "#scroll-down")?.click();
   });
 })();
+
+//////////// Back arrow: return to the list the project was opened from,
+//////////// at the same scroll position
+(() => {
+  const KEY = "eg-return";
+  const read = () => {
+    try {
+      return JSON.parse(sessionStorage.getItem(KEY));
+    } catch (e) {
+      return null;
+    }
+  };
+  const write = (value) => {
+    try {
+      sessionStorage.setItem(KEY, JSON.stringify(value));
+    } catch (e) {}
+  };
+  const isProjectPage = location.pathname.startsWith("/projects/");
+  const saved = read();
+
+  if (!isProjectPage) {
+    // Remember where the visitor was when opening a project from this page
+    document.addEventListener(
+      "click",
+      (e) => {
+        const link = e.target.closest("a[href]");
+        if (link && link.host === location.host && link.pathname.startsWith("/projects/")) {
+          write({ path: location.pathname, y: window.scrollY });
+        }
+      },
+      true
+    );
+
+    // Coming back via the arrow: jump to the saved position (only once)
+    if (saved && saved.restore && saved.path === location.pathname) {
+      write({ path: saved.path, y: saved.y });
+      let userScrolled = false;
+      ["wheel", "touchstart", "keydown"].forEach((type) =>
+        window.addEventListener(type, () => (userScrolled = true), { once: true, passive: true })
+      );
+      window.scrollTo(0, saved.y);
+      // images/fonts can shift the layout while loading: re-apply unless the visitor already scrolled
+      window.addEventListener("load", () => {
+        if (!userScrolled) window.scrollTo(0, saved.y);
+      });
+    }
+  } else {
+    // Project page: the back arrow returns to the remembered page
+    const back = document.querySelector(".navbar_arrow_back_wrap");
+    if (back && saved && saved.path) {
+      back.addEventListener("click", (e) => {
+        if (back.target === "_blank" || e.metaKey || e.ctrlKey || e.shiftKey) return;
+        e.preventDefault();
+        write({ path: saved.path, y: saved.y, restore: true });
+        window.location = saved.path;
+      });
+    }
+  }
+})();
