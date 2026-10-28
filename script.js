@@ -80,107 +80,143 @@ $(".opera_credits_container").each(function () {
 ///////////Swiper on Opus page
 if (window.innerWidth > 480) {
   $(".opus_swiper_component").each(function (index) {
-    const swiperEl = $(this).find(".swiper")[0];
     // Opt-in: components with the custom attribute data-scroll-release="true"
-    // get the page-friendly version (no loop, hands the scroll back to the
-    // page at the first/last slide). All other sliders keep the original setup.
-    const release = this.dataset.scrollRelease === "true";
+    // become a normally scrolling list (see initOpusScrollList below).
+    // All other sliders keep the original Swiper setup.
+    if (this.dataset.scrollRelease === "true") {
+      initOpusScrollList(this);
+      return;
+    }
 
-    const swiper = new Swiper(swiperEl, {
+    const swiper = new Swiper($(this).find(".swiper")[0], {
       //swiper.disable(),
       direction: "vertical",
-      loop: !release,
+      loop: true,
       slidesPerView: 1.2,
       centeredSlides: true,
       spaceBetween: 8,
       speed: 1100,
       //grabCursor: true,
-      // Release sliders use the custom wheel handler below instead
-      mousewheel: !release, //mouse wheel let you scroll slides
-      touchReleaseOnEdges: release,
+      mousewheel: true, //mouse wheel let you scroll slides
       parallax: true,
       //slideToClickedSlide: true,
       keyboard: {
         enabled: true,
       },
     });
-
-    if (release) initScrollReleaseWheel(swiper, swiperEl);
   });
 }
 
-// Custom wheel handling for release sliders:
-// - one wheel step / swipe moves one slide, continued scrolling chains
-//   slides even mid-animation (Swiper's own wheel handling waits for
-//   each animation to finish, which made long lists slow)
-// - mouse and trackpad get separate tuning (trackpads send many small deltas)
-// - only active when the slider is (almost) fully on screen
-// - at the first/last slide it holds briefly, then hands scroll to the page
-function initScrollReleaseWheel(swiper, swiperEl) {
-  const MOUSE = { STEP: 120, MIN_GAP: 280 }; // px of wheel per slide, ms between slides
-  const TRACKPAD = { STEP: 380, MIN_GAP: 750 };
-  const SLOW = 1100; // single step animation (ms)
-  const FAST = 600; // chained step animation (ms)
-  const EDGE_LOCK = 450; // ms to hold at an edge before releasing to the page
+// Opus scrolling list (replaces the vertical swiper on opted-in components):
+// - projects are a normal list scrolling with the page, so no scroll hijacking
+// - each project's text sits next to its image and only shows while that image
+//   covers the middle of the screen (fades in from the right, out to the left,
+//   same 1.1s timing as the old swiper)
+// - images drift slightly inside their frame (parallax)
+function initOpusScrollList(component) {
+  const list = component.querySelector(".swiper");
+  const itemsWrap = list && list.querySelector(".swiper-wrapper");
+  if (!itemsWrap) return;
 
-  let inView = false;
-  let acc = 0;
-  let lastStep = 0;
-  let edgeSince = 0;
-  let lastEvent = 0;
-  let trackpad = false;
+  injectOpusListCss();
 
-  new IntersectionObserver(
-    ([entry]) => {
-      inView = entry.intersectionRatio > 0.95;
-      if (!inView) acc = 0;
+  // Drop the Swiper classes so neither Swiper's nor the Webflow swiper styles apply
+  list.classList.remove("swiper");
+  list.classList.add("opus-list");
+  itemsWrap.classList.remove("swiper-wrapper");
+  const items = [...itemsWrap.children];
+  items.forEach((item) => {
+    item.classList.remove("swiper-slide");
+    item.classList.add("opus-item");
+  });
+  const imgs = items.map((item) => item.querySelector(".opus_img"));
+
+  const PARALLAX = 0.15; // the image is 130% of its frame, so it can move ±15%
+  const EXIT_MS = 1150; // a bit longer than the 1.1s text transition
+  const reduceMotion = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const timers = new Map();
+  let current = -1;
+
+  // Put a text that finished leaving back on the right, without animating it
+  function park(item) {
+    item.classList.add("no-anim");
+    item.classList.remove("is-leaving");
+    item.offsetHeight; // apply the jump before re-enabling transitions
+    item.classList.remove("no-anim");
+  }
+
+  function setCurrent(i) {
+    if (i === current) return;
+    const old = items[current];
+    if (old) {
+      old.classList.remove("is-current");
+      old.classList.add("is-leaving");
+      clearTimeout(timers.get(old));
+      timers.set(old, setTimeout(() => park(old), EXIT_MS));
+    }
+    current = i;
+    const item = items[i];
+    clearTimeout(timers.get(item));
+    if (item.classList.contains("is-leaving")) park(item);
+    item.classList.add("is-current");
+  }
+
+  function update() {
+    const vh = window.innerHeight;
+    const mid = vh / 2;
+    let active = 0;
+    items.forEach((item, j) => {
+      const r = item.getBoundingClientRect();
+      // current = the last project whose top has passed the middle of the screen
+      if (r.top <= mid) active = j;
+      if (reduceMotion || !imgs[j] || r.bottom < -100 || r.top > vh + 100) return;
+      const p = Math.max(-1, Math.min(1, (r.top + r.height / 2 - mid) / (mid + r.height / 2)));
+      imgs[j].style.transform = `translate3d(0, ${(-p * PARALLAX * r.height).toFixed(1)}px, 0)`;
+    });
+    setCurrent(active);
+  }
+
+  let ticking = false;
+  window.addEventListener(
+    "scroll",
+    () => {
+      if (ticking) return;
+      ticking = true;
+      requestAnimationFrame(() => {
+        ticking = false;
+        update();
+      });
     },
-    { threshold: [0, 0.5, 0.95, 1] }
-  ).observe(swiperEl);
-
-  swiperEl.addEventListener(
-    "wheel",
-    (e) => {
-      if (!inView || Math.abs(e.deltaY) < Math.abs(e.deltaX)) return;
-      const dy = e.deltaY * (e.deltaMode === 1 ? 16 : 1);
-      const t = performance.now();
-
-      // Trackpads send small and/or fractional deltas in pixel mode.
-      // Decided per gesture (a 300ms pause starts a new one) so it never flips mid-scroll.
-      const looksTrackpad =
-        e.deltaMode === 0 && (Math.abs(dy) < 50 || !Number.isInteger(dy));
-      if (t - lastEvent > 300) trackpad = looksTrackpad;
-      else if (looksTrackpad) trackpad = true;
-      lastEvent = t;
-      const cfg = trackpad ? TRACKPAD : MOUSE;
-
-      const down = dy > 0;
-      const atEdge = down ? swiper.isEnd : swiper.isBeginning;
-      if (atEdge) {
-        if (!edgeSince) edgeSince = t;
-        if (t - edgeSince > EDGE_LOCK) {
-          acc = 0;
-          return; // let the page scroll
-        }
-        e.preventDefault();
-        return;
-      }
-      edgeSince = 0;
-      e.preventDefault();
-
-      if (Math.sign(dy) !== Math.sign(acc)) acc = 0;
-      acc += dy;
-      if (Math.abs(acc) < cfg.STEP || t - lastStep < cfg.MIN_GAP) return;
-
-      const chained = t - lastStep < 700;
-      if (down) swiper.slideNext(chained ? FAST : SLOW);
-      else swiper.slidePrev(chained ? FAST : SLOW);
-      if (down ? swiper.isEnd : swiper.isBeginning) edgeSince = t;
-      lastStep = t;
-      acc = 0;
-    },
-    { passive: false }
+    { passive: true }
   );
+  window.addEventListener("resize", update);
+  update();
+}
+
+function injectOpusListCss() {
+  if (document.getElementById("opus-list-css")) return;
+  const C = '.opus_swiper_component[data-scroll-release="true"]';
+  const EASE = "cubic-bezier(0.215, 0.61, 0.355, 1)";
+  const style = document.createElement("style");
+  style.id = "opus-list-css";
+  // Images are 70svh tall; the 15svh bottom padding ((100 - 70) / 2) lets the
+  // last project reach the middle of the screen.
+  style.textContent = `
+${C} { height: auto !important; overflow: visible !important; }
+${C} .opus-list { position: relative; width: 100%; height: auto; overflow: visible; padding-bottom: 15svh; }
+${C} .w-dyn-items { display: block; }
+${C} .opus-item { width: 100%; height: 70svh; margin-bottom: 8px; }
+${C} .opus-item .container_flex { height: 100%; }
+${C} .opus_img { will-change: transform; }
+${C} .txt_content { opacity: 0; transform: translateX(5%); pointer-events: none;
+  transition: opacity 1.1s ${EASE}, transform 1.1s ${EASE}; }
+${C} .is-current .txt_content { opacity: 1; transform: translateX(0); pointer-events: auto; }
+${C} .is-leaving .txt_content { transform: translateX(-5%); }
+${C} .no-anim .txt_content { transition: none !important; }
+@media (prefers-reduced-motion: reduce) {
+  ${C} .txt_content { transform: none !important; transition: opacity 0.3s linear !important; }
+}`;
+  document.head.appendChild(style);
 }
 
 ////////// Page transition
